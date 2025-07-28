@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>wINGOMAN PRIDICTOR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    body {
+      width: 100vw;
+      height: 100vh;
+      background: black;
+      color: #00ff41;
+      font-family: 'Consolas', monospace;
+      position: relative;
+    }
+    #matrixCanvas {
+      position: fixed;
+      pointer-events: none;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+    }
+    .dashboard {
+      z-index: 2;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0,0,0,0.6);
+    }
+    .panel {
+      background: rgba(10,20,10,0.95);
+      padding: 2em 3em;
+      border-radius: 20px;
+      box-shadow: 0 0 30px #0f0a, 0 0 10px #0f0a;
+      min-width: 340px;
+      text-align: center;
+      margin-bottom: 2em;
+    }
+    label, input, button {
+      font-size: 1.2em;
+      margin: 0.3em 0;
+    }
+    input, button {
+      border: none;
+      border-radius: 8px;
+      padding: 0.5em 1em;
+      margin-top: 0.4em;
+      background: #111;
+      color: #0f0;
+    }
+    input:focus {
+      outline: 2px solid #0f0;
+    }
+    button {
+      background: #0f0;
+      color: #111;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.25s;
+    }
+    button:hover {
+      background: #1a1;
+    }
+    .results-board {
+      border: 2px solid #0f0;
+      border-radius: 10px;
+      background: #000c;
+      padding: 1em 2em;
+      margin-top: 1em;
+      color: #fff;
+      font-size: 1.1em;
+    }
+    .indicator {
+      font-size: 1.25em;
+      margin-top: 0.5em;
+      font-weight: bold;
+    }
+    .jackpot { color: #FFD700; }
+    .win { color: #00ff41; }
+    .loss { color: #f00; }
+    .overlay {
+      z-index: 999;
+      position: fixed;
+      left:0; top:0;
+      width:100vw; height:100vh;
+      background: rgba(0,0,0,0.93);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0f0;
+      font-size: 2em;
+      font-family: 'Consolas', monospace;
+      flex-direction: column;
+      transition: opacity 0.3s;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .overlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+    @media (max-width: 600px) {
+      .panel { min-width: 90vw; padding: 1em 0.5em; }
+      .results-board { padding: 0.5em 0.5em; }
+    }
+  </style>
+</head>
+<body>
+<canvas id="matrixCanvas"></canvas>
+<div class="dashboard">
+  <div class="panel">
+    <h2>Prediction Dashboard</h2>
+    <form id="predictionForm" autocomplete="off">
+      <label for="periodNumber">Enter 17-digit Period Number:</label><br>
+      <input type="text" id="periodNumber" name="periodNumber" maxlength="17" pattern="\d{17}" autocomplete="off" required>
+      <br>
+      <button type="submit">Get Prediction</button>
+    </form>
+    <div id="predictionResult" style="margin-top:1em;"></div>
+  </div>
+  <div class="panel results-board" id="resultsBoard" style="display:none;">
+    <h3>Results Dashboard</h3>
+    <div id="resultsInfo"></div>
+    <div id="updateResultSection" style="margin-top:1em;display:none;">
+      <label for="actualResult">Update Actual Result (0-9):</label>
+      <input type="number" id="actualResult" min="0" max="9" maxlength="1">
+      <button id="submitActualResult">Update</button>
+    </div>
+    <div id="outcomeDisplay" style="margin-top:1em;"></div>
+  </div>
+</div>
+<div class="overlay" id="overlayMsg"></div>
+<script>
+/* Matrix rain background */
+const canvas = document.getElementById('matrixCanvas');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const ctx = canvas.getContext('2d');
+let fontSize = 18, columns = Math.floor(canvas.width / fontSize);
+let drops = Array(columns).fill(1);
+function drawMatrix() {
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = fontSize + "px Consolas";
+  ctx.fillStyle = "#00FF41";
+  for (let i = 0; i < drops.length; i++) {
+    let text = String.fromCharCode(0x30A0 + Math.random() * 96);
+    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+    if (drops[i] * fontSize > canvas.height && Math.random() > 0.97) drops[i] = 0;
+    drops[i]++;
+  }
+}
+setInterval(drawMatrix, 35);
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  columns = Math.floor(canvas.width / fontSize);
+  drops = Array(columns).fill(1);
+});
+
+/* Business logic */
+const predictionForm = document.getElementById('predictionForm');
+const periodNumberInput = document.getElementById('periodNumber');
+const predictionResult = document.getElementById('predictionResult');
+const resultsBoard = document.getElementById('resultsBoard');
+const resultsInfo = document.getElementById('resultsInfo');
+const updateResultSection = document.getElementById('updateResultSection');
+const actualResultInput = document.getElementById('actualResult');
+const submitActualResult = document.getElementById('submitActualResult');
+const outcomeDisplay = document.getElementById('outcomeDisplay');
+const overlayMsg = document.getElementById('overlayMsg');
+
+let currentPeriod = '';
+let predictionData = null;
+let fetchResultsTimer = null;
+let overlayTimeout = null;
+
+function showOverlay(msg, ms=0) {
+  overlayMsg.textContent = msg;
+  overlayMsg.classList.add('show');
+  if (overlayTimeout) clearTimeout(overlayTimeout);
+  if (ms > 0) overlayTimeout = setTimeout(()=>overlayMsg.classList.remove('show'), ms);
+}
+function hideOverlay() {
+  overlayMsg.classList.remove('show');
+}
+function renderPrediction(pred) {
+  if (!pred) return '';
+  return `
+    <div>
+      <b>Prediction</b> for Period <span style="color:#FFD700">${pred.period}</span>:<br>
+      <b>Big/Small:</b> ${pred.big_small}<br>
+      <b>High Frequency Numbers:</b> <span style="color:#FFD700">${pred.high_freq_numbers.join(', ')}</span><br>
+      <b>Red/Green:</b> ${pred.red_green}
+    </div>
+  `;
+}
+function renderResultsDashboard(data) {
+  let html = `<b>Period:</b> ${data.period}<br>
+    <b>Your Prediction:</b> ${data.prediction}<br>
+    <b>Actual Result:</b> <span style="color:#FFD700">${data.actual_result !== null ? data.actual_result : '(not updated)'}</span><br>
+    <b>Outcome:</b> <span class="indicator ${data.indicator}">${data.outcome}</span>
+  `;
+  return html;
+}
+function getOutcome(pred, actual) {
+  // Example logic (you should match backend logic)
+  if (!pred || actual === null) return {outcome:'', indicator:''};
+  const high = pred.high_freq_numbers;
+  if (high.includes(Number(actual))) {
+    if (actual == high[0] || actual == high[1]) {
+      return {outcome:'Jackpot', indicator:'jackpot'};
+    }
+    return {outcome:'Win (Small)', indicator:'win'};
+  }
+  return {outcome:'Loss', indicator:'loss'};
+}
+function scheduleAutoFetchResults(period) {
+  if (fetchResultsTimer) clearInterval(fetchResultsTimer);
+  fetchResultsTimer = setInterval(()=>{
+    fetch(`/api/results/${period}`)
+      .then(r=>r.json())
+      .then(data=>{
+        if (data.actual_result !== null) {
+          updateDashboard(data);
+          clearInterval(fetchResultsTimer);
+        }
+      });
+  }, 60*1000);
+}
+function updateDashboard(data) {
+  resultsBoard.style.display = 'block';
+  resultsInfo.innerHTML = renderResultsDashboard(data);
+  if (data.actual_result === null) {
+    updateResultSection.style.display = 'block';
+    outcomeDisplay.innerHTML = '';
+  } else {
+    updateResultSection.style.display = 'none';
+    let outcome = getOutcome(predictionData, data.actual_result);
+    outcomeDisplay.innerHTML = `Predicted: ${predictionData.high_freq_numbers.join('/')}<br>
+      Actual: <span style="color:#FFD700">${data.actual_result}</span><br>
+      <span class="indicator ${outcome.indicator}">${outcome.outcome}</span>`;
+  }
+}
+predictionForm.onsubmit = function(e) {
+  e.preventDefault();
+  const period = periodNumberInput.value.trim();
+  if (period.length !== 17 || !/^\d+$/.test(period)) {
+    alert("Please enter a valid 17-digit period number.");
+    return false;
+  }
+  showOverlay("Predicting, please wait...");
+  fetch('/api/predict', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({period})
+  }).then(r=>r.json()).then(res=>{
+    hideOverlay();
+    if (res.success) {
+      currentPeriod = period;
+      predictionData = res.prediction;
+      predictionResult.innerHTML = renderPrediction(res.prediction);
+      resultsBoard.style.display = 'block';
+      updateDashboard({period, prediction: predictionData.high_freq_numbers.join('/'), actual_result: null, outcome:'', indicator:''});
+      updateResultSection.style.display = 'none';
+      // Overlay after 15s for result update
+      setTimeout(()=>showOverlay("Please update the result (0-9)", 8000), 15000);
+      scheduleAutoFetchResults(period);
+    } else {
+      predictionResult.innerHTML = "<span style='color:#f00'>Prediction failed. Try again.</span>";
+    }
+  }).catch(()=>{
+    hideOverlay();
+    predictionResult.innerHTML = "<span style='color:#f00'>API Error</span>";
+  });
+};
+submitActualResult.onclick = function() {
+  let actual = actualResultInput.value;
+  if (!/^[0-9]$/.test(actual)) {
+    alert("Enter a valid number (0-9)");
+    return;
+  }
+  showOverlay("Updating result...");
+  fetch(`/api/results/${currentPeriod}`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({actual: Number(actual)})
+  }).then(r=>r.json()).then(data=>{
+    hideOverlay();
+    updateDashboard(data);
+  }).catch(()=>{hideOverlay();});
+};
+// Auto-fetch result after 1min for dashboard update
+// (handled by scheduleAutoFetchResults)
+</script>
+</body>
+</html>
